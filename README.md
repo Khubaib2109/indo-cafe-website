@@ -1,6 +1,29 @@
-# Indo Cafe Static Website
+[README.md](https://github.com/user-attachments/files/28675602/README.md)
+# Indo Cafe Website — Editable Version
 
-A clean, responsive static website for Indo Cafe, built with HTML, CSS and JavaScript only.
+This is a static HTML/CSS/JS website for Indo Cafe.
+
+## Most updates should be made in this file
+
+```text
+data/menu.js
+```
+
+That file controls:
+
+- business name
+- phone number
+- address
+- map links
+- lunchbox price
+- combo price
+- menu items
+- menu descriptions
+- tags
+- allergens
+- opening hours
+- popular items
+- homepage copy
 
 ## File structure
 
@@ -11,43 +34,98 @@ indo-cafe-website/
 │   └── styles.css
 ├── js/
 │   └── main.js
-└── README.md
+├── data/
+│   └── menu.js
+├── README.md
+└── .nojekyll
 ```
 
-## What to edit before launch
+## How to update the lunchbox price
 
-Open `index.html` and update:
-
-- phone number: replace `02 0000 0000` and `+61200000000`
-- address: confirm the exact address wording
-- menu items and descriptions
-- opening hours
-- Google Maps links and embed query
-- placeholder image blocks with real photos if available
-
-Open `css/styles.css` and update:
-
-- colours in the `:root` section
-- fonts in the `:root` section
-- spacing and border radius values if needed
-
-## Run locally
-
-Option 1: open `index.html` directly in your browser.
-
-Option 2: run a local development server:
-
-```bash
-cd indo-cafe-website
-python3 -m http.server 8000
-```
-
-Then open:
+Open:
 
 ```text
-http://localhost:8000
+data/menu.js
 ```
 
-## Deploy
+Find:
 
-This site has no build step. It can be deployed to GitHub Pages, Cloudflare Pages, Netlify or any static hosting platform.
+```js
+lunchboxPrice: "$10",
+```
+
+Change it, for example:
+
+```js
+lunchboxPrice: "$11",
+```
+
+If individual menu cards also use the old price, update each `price` field in `menuItems`.
+
+## How to update the combo price
+
+Find:
+
+```js
+comboPrice: "$13",
+```
+
+Change it to the new price.
+
+## How to update the phone number
+
+Find:
+
+```js
+phoneDisplay: "0411 038 803",
+phoneLink: "+61411038803",
+```
+
+Use a readable version for `phoneDisplay` and the international no-spaces version for `phoneLink`.
+
+## How to add a menu item
+
+Add a new object inside `menuItems`, for example:
+
+```js
+{
+  name: "New Dish",
+  price: "$10",
+  description: "Short dish description.",
+  tags: ["Mild", "Veg option"],
+  tagStyle: "mild",
+  allergens: ["Soy"],
+  mayContain: ["Gluten"]
+}
+```
+
+## Important
+
+Confirm menu, halal wording, opening hours and allergen information with the business before launch.
+
+
+## Version 5 changes
+
+This version has a clearer hero with Indo Cafe as the main headline, a more compact menu grid, smaller cards, and subtle angled section transitions.
+
+
+## Google Sheets setup
+
+The website now loads content from the published Google Sheet CSV links in:
+
+```text
+data/sheet-config.js
+```
+
+The local fallback remains in:
+
+```text
+data/menu.js
+```
+
+Normal workflow:
+1. Edit the Google Sheet.
+2. Wait a few minutes for Google to republish the CSV.
+3. Refresh the website.
+
+If Google Sheets cannot be loaded, the site uses `data/menu.js` instead.
