@@ -1,9 +1,12 @@
 /*
   Indo Cafe website interactions and rendering
-  Most content is edited in data/menu.js.
+  --------------------------------------------
+  Normal content is edited in Google Sheets.
+  data/menu.js is still used as a fallback if the sheet cannot load.
 */
 
-const siteData = window.INDO_CAFE_DATA || {};
+let siteData = { ...(window.INDO_CAFE_DATA || {}) };
+const sheetConfig = window.INDO_CAFE_SHEETS || {};
 
 const navToggle = document.querySelector('[data-nav-toggle]');
 const primaryNav = document.querySelector('[data-primary-nav]');
@@ -17,6 +20,198 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function splitList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/*
+  Lightweight CSV parser.
+  Handles normal Google Sheets CSV output, including quoted cells and commas inside quoted cells.
+*/
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      cell += '"';
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") i += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  row.push(cell);
+  rows.push(row);
+
+  return rows.filter((r) => r.some((value) => String(value).trim() !== ""));
+}
+
+function rowsToObjects(rows) {
+  if (!rows.length) return [];
+
+  const headers = rows[0].map((header) => String(header).trim());
+
+  return rows.slice(1).map((row) => {
+    const object = {};
+    headers.forEach((header, index) => {
+      object[header] = row[index] ?? "";
+    });
+    return object;
+  });
+}
+
+async function fetchCsvObjects(url) {
+  if (!url) return [];
+
+  const response = await fetch(url, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`Could not load CSV: ${response.status}`);
+  }
+
+  const text = await response.text();
+  return rowsToObjects(parseCsv(text));
+}
+
+function showRow(row) {
+  return String(row.Show || row.show || "yes").trim().toLowerCase() !== "no";
+}
+
+function buildDataFromSheets(sheetResults) {
+  const nextData = { ...siteData };
+
+  const settingsRows = sheetResults.settings || [];
+  const menuRows = sheetResults.menu || [];
+  const hoursRows = sheetResults.hours || [];
+  const popularRows = sheetResults.popular || [];
+
+  // Settings tab: Key | Value | Notes
+  settingsRows.forEach((row) => {
+    const key = String(row.Key || row.key || "").trim();
+    const value = row.Value ?? row.value;
+
+    if (key && value !== undefined && String(value).trim() !== "") {
+      nextData[key] = String(value).trim();
+    }
+  });
+
+  // Menu tab: Name | Price | Description | Tags | TagStyle | Allergens | MayContain | Show
+  if (menuRows.length) {
+    const visibleMenu = menuRows.filter(showRow).filter((row) => String(row.Name || "").trim());
+
+    if (visibleMenu.length) {
+      nextData.menuItems = visibleMenu.map((row) => ({
+        name: String(row.Name || "").trim(),
+        price: String(row.Price || nextData.lunchboxPrice || "").trim(),
+        description: String(row.Description || "").trim(),
+        tags: splitList(row.Tags),
+        tagStyle: String(row.TagStyle || "").trim(),
+        allergens: splitList(row.Allergens),
+        mayContain: splitList(row.MayContain)
+      }));
+    }
+  }
+
+  // Hours tab: Day | Time
+  if (hoursRows.length) {
+    const visibleHours = hoursRows.filter((row) => String(row.Day || "").trim());
+
+    if (visibleHours.length) {
+      nextData.openingHours = visibleHours.map((row) => ({
+        day: String(row.Day || "").trim(),
+        time: String(row.Time || "").trim()
+      }));
+    }
+  }
+
+  // Popular tab: Name | Description | ImageLabel | Alt | Show
+  if (popularRows.length) {
+    const visiblePopular = popularRows.filter(showRow).filter((row) => String(row.Name || "").trim());
+
+    if (visiblePopular.length) {
+      nextData.popularItems = visiblePopular.map((row) => ({
+        name: String(row.Name || "").trim(),
+        description: String(row.Description || "").trim(),
+        imageLabel: String(row.ImageLabel || row.Name || "").trim(),
+        alt: String(row.Alt || `Placeholder image for ${row.Name}`).trim()
+      }));
+    }
+  }
+
+  // Keep common allergens fresh if they were not manually supplied.
+  if (nextData.menuItems?.length) {
+    const allergens = new Set(nextData.commonAllergens || []);
+    nextData.menuItems.forEach((item) => {
+      [...(item.allergens || []), ...(item.mayContain || [])].forEach((allergen) => allergens.add(allergen));
+    });
+    nextData.commonAllergens = [...allergens].filter(Boolean);
+  }
+
+  return nextData;
+}
+
+async function loadSheetData() {
+  if (!sheetConfig.enabled) return;
+
+  try {
+    const [settings, menu, hours, popular] = await Promise.allSettled([
+      fetchCsvObjects(sheetConfig.settingsCsv),
+      fetchCsvObjects(sheetConfig.menuCsv),
+      fetchCsvObjects(sheetConfig.hoursCsv),
+      fetchCsvObjects(sheetConfig.popularCsv)
+    ]);
+
+    const sheetResults = {
+      settings: settings.status === "fulfilled" ? settings.value : [],
+      menu: menu.status === "fulfilled" ? menu.value : [],
+      hours: hours.status === "fulfilled" ? hours.value : [],
+      popular: popular.status === "fulfilled" ? popular.value : []
+    };
+
+    const hasAnySheetData = Object.values(sheetResults).some((rows) => rows.length > 0);
+    if (!hasAnySheetData) return;
+
+    siteData = buildDataFromSheets(sheetResults);
+    renderSite();
+
+    document.documentElement.dataset.sheetStatus = "loaded";
+    console.info("Indo Cafe: loaded content from Google Sheets.");
+  } catch (error) {
+    document.documentElement.dataset.sheetStatus = "fallback";
+    console.warn("Indo Cafe: Google Sheet content could not be loaded. Using local fallback data.", error);
+  }
 }
 
 function setTextContent() {
@@ -164,13 +359,14 @@ function renderSite() {
   renderOpeningHours();
 }
 
+// Render local fallback immediately, then replace it with Google Sheets content if available.
 renderSite();
+loadSheetData();
 
 if (year) {
   year.textContent = new Date().getFullYear();
 }
 
-// Mobile navigation toggle with accessible aria-expanded state.
 if (navToggle && primaryNav) {
   navToggle.addEventListener("click", () => {
     const isOpen = primaryNav.classList.toggle("is-open");
@@ -195,7 +391,6 @@ if (navToggle && primaryNav) {
   });
 }
 
-// Sticky header shadow after scrolling.
 if (header) {
   const setHeaderState = () => {
     header.classList.toggle("has-shadow", window.scrollY > 8);
